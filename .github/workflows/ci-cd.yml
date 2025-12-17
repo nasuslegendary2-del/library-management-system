@@ -8,8 +8,8 @@ on:
 
 env:
   REGISTRY: docker.io
-  BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/lms-backend
-  FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/lms-frontend
+  BACKEND_IMAGE: ${{ secrets.hamzayounis }}/lms-backend
+  FRONTEND_IMAGE: ${{ secrets.hamzayounis }}/lms-frontend
 
 jobs:
   # Build and Test Stage
