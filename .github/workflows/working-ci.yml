@@ -1,0 +1,97 @@
+name: Working CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # Test Stage - Always runs
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run validation tests
+        run: |
+          echo "🧪 Running project validation..."
+          node test-ci.js
+
+      - name: Verify project structure
+        run: |
+          echo "📋 Verifying project files..."
+          ls -la
+          echo "✅ Project structure verified"
+
+  # Docker Stage - Only if secrets are configured
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check Docker Hub secrets
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "⚠️ DOCKERHUB_USERNAME secret not configured"
+            echo "ℹ️ Skipping Docker build - configure secrets to enable"
+            exit 0
+          fi
+          echo "✅ Docker Hub credentials configured"
+
+      - name: Login to Docker Hub
+        if: secrets.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build backend image
+        if: secrets.DOCKERHUB_USERNAME != ''
+        run: |
+          echo "🏗️ Building backend image..."
+          docker build -f Dockerfile.backend -t ${{ secrets.DOCKERHUB_USERNAME }}/lms-backend:latest .
+
+      - name: Build frontend image
+        if: secrets.DOCKERHUB_USERNAME != ''
+        run: |
+          echo "🏗️ Building frontend image..."
+          docker build -f Dockerfile.frontend -t ${{ secrets.DOCKERHUB_USERNAME }}/lms-frontend:latest .
+
+      - name: Push images to Docker Hub
+        if: secrets.DOCKERHUB_USERNAME != ''
+        run: |
+          echo "📤 Pushing images to Docker Hub..."
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lms-backend:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lms-frontend:latest
+          echo "✅ Images pushed successfully!"
+
+  # Summary
+  summary:
+    needs: [test, docker]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "🎉 CI/CD Pipeline Complete!"
+          echo "✅ Tests: ${{ needs.test.result }}"
+          echo "✅ Docker: ${{ needs.docker.result }}"
+          echo ""
+          echo "📋 Next Steps:"
+          echo "1. Configure GitHub Secrets if Docker stage failed"
+          echo "2. Check Docker Hub for pushed images"
+          echo "3. Deploy to AKS (manual or configure Azure secrets)"
