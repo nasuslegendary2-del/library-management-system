@@ -1,0 +1,28 @@
+# Git Commands to Push to GitHub
+
+# 1. Initialize git repository (if not already done)
+git init
+
+# 2. Add all files to staging
+git add .
+
+# 3. Create initial commit
+git commit -m "Initial commit: Complete Library Management System with Docker, K8s, and CI/CD"
+
+# 4. Add remote repository (REPLACE YOUR_USERNAME with your actual GitHub username)
+git remote add origin https://github.com/YOUR_USERNAME/library-management-system.git
+
+# 5. Push to GitHub
+git push -u origin main
+
+# Alternative if you get an error about main branch:
+git branch -M main
+git push -u origin main
+
+# 6. Verify the push
+git status
+
+# Future commits (after making changes):
+git add .
+git commit -m "Your commit message here"
+git push
