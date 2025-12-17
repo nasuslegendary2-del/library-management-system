@@ -1,0 +1,10 @@
+After creating the repository on GitHub, run this command:
+
+git push -u origin main
+
+If you get an authentication error, you may need to:
+1. Use a personal access token instead of password
+2. Or use GitHub Desktop
+3. Or configure SSH keys
+
+Your repository URL: https://github.com/nasuslegendary2-del/library-management-system
