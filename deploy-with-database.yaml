@@ -1,0 +1,287 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lms-secrets
+type: Opaque
+data:
+  # Base64 encoded password: "password"
+  db-password: cGFzc3dvcmQ=
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: managed-csi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+data:
+  schema.sql: |
+    -- Library Management System Database Schema
+
+    -- Books table
+    CREATE TABLE IF NOT EXISTS books (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        author VARCHAR(255) NOT NULL,
+        isbn VARCHAR(20) UNIQUE,
+        available BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Users table
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        phone VARCHAR(20),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Borrowings table
+    CREATE TABLE IF NOT EXISTS borrowings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        book_id INTEGER REFERENCES books(id),
+        borrowed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        returned_date TIMESTAMP NULL,
+        status VARCHAR(20) DEFAULT 'borrowed',
+        CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id),
+        CONSTRAINT fk_book FOREIGN KEY (book_id) REFERENCES books(id)
+    );
+
+    -- Insert sample data
+    INSERT INTO books (title, author, isbn) VALUES
+    ('The Great Gatsby', 'F. Scott Fitzgerald', '978-0-7432-7356-5'),
+    ('To Kill a Mockingbird', 'Harper Lee', '978-0-06-112008-4'),
+    ('1984', 'George Orwell', '978-0-452-28423-4'),
+    ('Pride and Prejudice', 'Jane Austen', '978-0-14-143951-8'),
+    ('The Catcher in the Rye', 'J.D. Salinger', '978-0-316-76948-0')
+    ON CONFLICT (isbn) DO NOTHING;
+
+    INSERT INTO users (name, email, phone) VALUES
+    ('John Doe', 'john.doe@email.com', '555-0101'),
+    ('Jane Smith', 'jane.smith@email.com', '555-0102'),
+    ('Bob Johnson', 'bob.johnson@email.com', '555-0103')
+    ON CONFLICT (email) DO NOTHING;
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lms-database
+  labels:
+    app: lms-database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lms-database
+  template:
+    metadata:
+      labels:
+        app: lms-database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "library_db"
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lms-secrets
+                  key: db-password
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+              subPath: postgres
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - library_db
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - library_db
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: init-script
+          configMap:
+            name: postgres-init-script
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lms-database-service
+  labels:
+    app: lms-database
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: lms-database
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lms-backend
+  labels:
+    app: lms-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: lms-backend
+  template:
+    metadata:
+      labels:
+        app: lms-backend
+    spec:
+      containers:
+        - name: backend
+          image: hamzayounis/lms-backend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DB_HOST
+              value: "lms-database-service"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "library_db"
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lms-secrets
+                  key: db-password
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lms-backend-service
+  labels:
+    app: lms-backend
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: lms-backend
+  type: LoadBalancer
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lms-frontend
+  labels:
+    app: lms-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: lms-frontend
+  template:
+    metadata:
+      labels:
+        app: lms-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: hamzayounis/lms-frontend:latest
+          ports:
+            - containerPort: 80
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lms-frontend-service
+  labels:
+    app: lms-frontend
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: lms-frontend
+  type: LoadBalancer
