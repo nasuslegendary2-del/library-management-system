@@ -1,0 +1,24 @@
+{
+  "name": "lms-selenium-tests",
+  "version": "1.0.0",
+  "description": "Selenium automated tests for Library Management System",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-runner.js",
+    "test-all": "node test-all-scenarios.js",
+    "screenshot": "node screenshot-generator.js"
+  },
+  "dependencies": {
+    "chromedriver": "^143.0.2",
+    "fs-extra": "^11.1.1",
+    "selenium-webdriver": "^4.15.0"
+  },
+  "keywords": [
+    "selenium",
+    "testing",
+    "automation",
+    "library-management"
+  ],
+  "author": "LMS Team",
+  "license": "MIT"
+}

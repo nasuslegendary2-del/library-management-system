@@ -1,0 +1,15 @@
+{
+  "timestamp": "2025-12-18T01:45:36.847Z",
+  "application": "Library Management System",
+  "frontend_url": "http://172.188.254.183",
+  "backend_url": "http://4.144.173.4:3000",
+  "test_results": [
+    {
+      "test": "Frontend Access",
+      "status": "PASS",
+      "url": "http://172.188.254.183",
+      "title": "Library Management System"
+    }
+  ],
+  "screenshots_location": "./screenshots"
+}
