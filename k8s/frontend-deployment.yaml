@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: FRONTEND_IMAGE_PLACEHOLDER
+          image: nasuslegendary2-del/lms-frontend:latest
           ports:
             - containerPort: 80
           livenessProbe:

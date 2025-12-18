@@ -66,3 +66,59 @@ jobs:
           echo "🎉 Docker images built and pushed successfully!"
           echo "Backend: ${{ secrets.DOCKERHUB_USERNAME }}/lms-backend:latest"
           echo "Frontend: ${{ secrets.DOCKERHUB_USERNAME }}/lms-frontend:latest"
+
+  # Deploy to AKS Stage
+  deploy:
+    needs: docker
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "latest"
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }}
+
+      - name: Update image references in deployment
+        run: |
+          sed -i 's|nasuslegendary2-del/lms-backend:latest|${{ secrets.DOCKERHUB_USERNAME }}/lms-backend:latest|g' quick-deploy.yaml
+          sed -i 's|nasuslegendary2-del/lms-frontend:latest|${{ secrets.DOCKERHUB_USERNAME }}/lms-frontend:latest|g' quick-deploy.yaml
+
+      - name: Deploy to AKS
+        run: |
+          echo "🚀 Deploying to AKS cluster..."
+          kubectl apply -f quick-deploy.yaml
+
+      - name: Wait for deployment
+        run: |
+          echo "⏳ Waiting for pods to be ready..."
+          kubectl wait --for=condition=ready pod -l app=lms-backend-simple --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=lms-frontend-simple --timeout=300s
+
+      - name: Get service URLs
+        run: |
+          echo "🌐 Getting service URLs..."
+          kubectl get services -o wide
+          echo ""
+          echo "📋 Application URLs:"
+          BACKEND_IP=$(kubectl get service lms-backend-simple-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          FRONTEND_IP=$(kubectl get service lms-frontend-simple-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "Frontend: http://$FRONTEND_IP"
+          echo "Backend API: http://$BACKEND_IP:3000"
+
+      - name: Deployment success
+        run: |
+          echo "✅ Deployment to AKS completed successfully!"
+          echo "🎯 Your Library Management System is now live!"
