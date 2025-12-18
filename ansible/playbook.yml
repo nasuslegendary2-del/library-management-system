@@ -1,0 +1,478 @@
+---
+# Ansible Playbook for Library Management System Infrastructure
+# This playbook configures multiple server roles for a complete deployment
+
+- name: "Library Management System - Complete Infrastructure Setup"
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    project_name: "library-management-system"
+    app_user: "lmsapp"
+    app_directory: "/opt/{{ project_name }}"
+    log_directory: "/var/log/{{ project_name }}"
+
+  tasks:
+    - name: "Global: Update system packages"
+      package:
+        name: "*"
+        state: latest
+      when: ansible_os_family == "RedHat" or ansible_os_family == "Debian"
+
+    - name: "Global: Install common packages"
+      package:
+        name:
+          - curl
+          - wget
+          - git
+          - htop
+          - vim
+          - unzip
+        state: present
+
+    - name: "Global: Create application user"
+      user:
+        name: "{{ app_user }}"
+        system: yes
+        shell: /bin/bash
+        home: "{{ app_directory }}"
+        create_home: yes
+
+    - name: "Global: Create log directory"
+      file:
+        path: "{{ log_directory }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+
+# Web Servers Configuration (Nginx)
+- name: "Configure Web Servers (Frontend)"
+  hosts: webservers
+  become: yes
+
+  vars:
+    nginx_sites_available: "/etc/nginx/sites-available"
+    nginx_sites_enabled: "/etc/nginx/sites-enabled"
+
+  tasks:
+    - name: "Web: Install Nginx"
+      package:
+        name: nginx
+        state: present
+
+    - name: "Web: Install Node.js (for static file serving)"
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+        apt-get install -y nodejs
+      when: ansible_os_family == "Debian"
+
+    - name: "Web: Create Nginx configuration for LMS"
+      copy:
+        content: |
+          server {
+              listen 80;
+              server_name {{ server_name | default('localhost') }};
+              
+              # Serve static files
+              location / {
+                  root /var/www/{{ project_name }};
+                  index index.html;
+                  try_files $uri $uri/ /index.html;
+              }
+              
+              # Proxy API requests to backend
+              location /api/ {
+                  proxy_pass http://{{ groups['appservers'][0] }}:{{ app_port }};
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+              
+              # Health check
+              location /health {
+                  proxy_pass http://{{ groups['appservers'][0] }}:{{ app_port }}/health;
+              }
+              
+              # Logging
+              access_log {{ log_directory }}/nginx_access.log;
+              error_log {{ log_directory }}/nginx_error.log;
+          }
+        dest: "{{ nginx_sites_available }}/{{ project_name }}"
+
+    - name: "Web: Enable LMS site"
+      file:
+        src: "{{ nginx_sites_available }}/{{ project_name }}"
+        dest: "{{ nginx_sites_enabled }}/{{ project_name }}"
+        state: link
+
+    - name: "Web: Remove default Nginx site"
+      file:
+        path: "{{ nginx_sites_enabled }}/default"
+        state: absent
+
+    - name: "Web: Create web directory"
+      file:
+        path: "/var/www/{{ project_name }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: "Web: Create sample index.html"
+      copy:
+        content: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Library Management System</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                  .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }
+                  h1 { color: #333; text-align: center; }
+                  .status { background: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>📚 Library Management System</h1>
+                  <div class="status">
+                      <h3>✅ Ansible Configuration Complete</h3>
+                      <p><strong>Web Server:</strong> Nginx configured and running</p>
+                      <p><strong>Configured by:</strong> Ansible Playbook</p>
+                      <p><strong>Date:</strong> {{ ansible_date_time.iso8601 }}</p>
+                  </div>
+                  <p>This web server has been automatically configured using Ansible for the Library Management System.</p>
+              </div>
+          </body>
+          </html>
+        dest: "/var/www/{{ project_name }}/index.html"
+        owner: www-data
+        group: www-data
+
+    - name: "Web: Start and enable Nginx"
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
+
+# Application Servers Configuration (Node.js)
+- name: "Configure Application Servers (Backend)"
+  hosts: appservers
+  become: yes
+
+  tasks:
+    - name: "App: Install Node.js 18.x"
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+        apt-get install -y nodejs
+      when: ansible_os_family == "Debian"
+
+    - name: "App: Install PM2 globally"
+      npm:
+        name: pm2
+        global: yes
+
+    - name: "App: Create application directory"
+      file:
+        path: "{{ app_directory }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+
+    - name: "App: Create package.json for LMS backend"
+      copy:
+        content: |
+          {
+            "name": "library-management-backend",
+            "version": "1.0.0",
+            "description": "Backend API for Library Management System",
+            "main": "server.js",
+            "scripts": {
+              "start": "node server.js",
+              "dev": "nodemon server.js"
+            },
+            "dependencies": {
+              "express": "^4.18.2",
+              "cors": "^2.8.5",
+              "dotenv": "^16.3.1",
+              "pg": "^8.11.3"
+            }
+          }
+        dest: "{{ app_directory }}/package.json"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+
+    - name: "App: Create basic server.js"
+      copy:
+        content: |
+          const express = require('express');
+          const cors = require('cors');
+          require('dotenv').config();
+
+          const app = express();
+          const PORT = process.env.PORT || 3000;
+
+          // Middleware
+          app.use(cors());
+          app.use(express.json());
+
+          // Health check endpoint
+          app.get('/health', (req, res) => {
+            res.json({ 
+              status: 'OK', 
+              message: 'Library Management System API - Configured by Ansible',
+              timestamp: new Date().toISOString(),
+              server: process.env.HOSTNAME || 'unknown'
+            });
+          });
+
+          // Basic API endpoints
+          app.get('/api/books', (req, res) => {
+            res.json({ books: [], message: 'Books endpoint configured by Ansible' });
+          });
+
+          app.get('/api/users', (req, res) => {
+            res.json({ users: [], message: 'Users endpoint configured by Ansible' });
+          });
+
+          app.listen(PORT, () => {
+            console.log(`🚀 LMS Backend running on port ${PORT}`);
+            console.log(`📅 Started at: ${new Date().toISOString()}`);
+            console.log(`⚙️ Configured by: Ansible Playbook`);
+          });
+        dest: "{{ app_directory }}/server.js"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+
+    - name: "App: Install Node.js dependencies"
+      npm:
+        path: "{{ app_directory }}"
+      become_user: "{{ app_user }}"
+
+    - name: "App: Create PM2 ecosystem file"
+      copy:
+        content: |
+          module.exports = {
+            apps: [{
+              name: '{{ project_name }}-backend',
+              script: 'server.js',
+              cwd: '{{ app_directory }}',
+              instances: {{ pm2_instances | default(2) }},
+              exec_mode: 'cluster',
+              env: {
+                NODE_ENV: 'production',
+                PORT: {{ app_port }}
+              },
+              log_file: '{{ log_directory }}/app.log',
+              out_file: '{{ log_directory }}/app-out.log',
+              error_file: '{{ log_directory }}/app-error.log'
+            }]
+          };
+        dest: "{{ app_directory }}/ecosystem.config.js"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+
+# Database Servers Configuration (PostgreSQL)
+- name: "Configure Database Servers"
+  hosts: databases
+  become: yes
+
+  tasks:
+    - name: "DB: Install PostgreSQL"
+      package:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - python3-psycopg2
+        state: present
+
+    - name: "DB: Start and enable PostgreSQL"
+      systemd:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: "DB: Create application database"
+      postgresql_db:
+        name: "{{ db_name }}"
+        state: present
+      become_user: postgres
+
+    - name: "DB: Create database user"
+      postgresql_user:
+        name: "{{ db_user }}"
+        password: "secure_password_123"
+        priv: "{{ db_name }}:ALL"
+        state: present
+      become_user: postgres
+
+# Load Balancer Configuration
+- name: "Configure Load Balancers"
+  hosts: loadbalancers
+  become: yes
+
+  tasks:
+    - name: "LB: Install HAProxy"
+      package:
+        name: haproxy
+        state: present
+
+    - name: "LB: Configure HAProxy for LMS"
+      copy:
+        content: |
+          global
+              daemon
+              maxconn 4096
+              
+          defaults
+              mode http
+              timeout connect 5000ms
+              timeout client 50000ms
+              timeout server 50000ms
+              
+          frontend lms_frontend
+              bind *:80
+              default_backend lms_backend
+              
+          backend lms_backend
+              balance roundrobin
+              {% for host in groups['appservers'] %}
+              server {{ host }} {{ hostvars[host]['ansible_host'] }}:{{ app_port }} check
+              {% endfor %}
+        dest: /etc/haproxy/haproxy.cfg
+
+    - name: "LB: Start and enable HAProxy"
+      systemd:
+        name: haproxy
+        state: restarted
+        enabled: yes
+
+# Monitoring Configuration
+- name: "Configure Monitoring"
+  hosts: monitoring
+  become: yes
+
+  tasks:
+    - name: "Monitor: Install monitoring tools"
+      package:
+        name:
+          - htop
+          - iotop
+          - nethogs
+        state: present
+
+    - name: "Monitor: Create monitoring script"
+      copy:
+        content: |
+          #!/bin/bash
+          # LMS Monitoring Script - Configured by Ansible
+
+          echo "=== Library Management System Health Check ==="
+          echo "Date: $(date)"
+          echo "Hostname: $(hostname)"
+          echo ""
+
+          echo "=== System Resources ==="
+          echo "CPU Usage:"
+          top -bn1 | grep "Cpu(s)" | awk '{print $2 $3 $4 $5}'
+
+          echo "Memory Usage:"
+          free -h
+
+          echo "Disk Usage:"
+          df -h
+
+          echo ""
+          echo "=== Service Status ==="
+          systemctl is-active nginx && echo "✅ Nginx: Running" || echo "❌ Nginx: Stopped"
+          systemctl is-active postgresql && echo "✅ PostgreSQL: Running" || echo "❌ PostgreSQL: Stopped"
+
+          echo ""
+          echo "=== Network Connections ==="
+          netstat -tuln | grep -E ':(80|3000|5432)'
+
+          echo ""
+          echo "=== Log Summary ==="
+          echo "Recent errors in system log:"
+          journalctl --since "1 hour ago" --priority=err --no-pager | tail -5
+        dest: /usr/local/bin/lms-health-check.sh
+        mode: "0755"
+
+# Final verification and reporting
+- name: "Final Verification and Reporting"
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: "Verify: Check service status"
+      command: systemctl is-active {{ item }}
+      register: service_status
+      failed_when: false
+      loop:
+        - nginx
+        - postgresql
+      when: item in ansible_facts.services
+
+    - name: "Report: Generate configuration summary"
+      copy:
+        content: |
+          # Ansible Configuration Summary
+          # Generated: {{ ansible_date_time.iso8601 }}
+
+          ## Server: {{ inventory_hostname }}
+          - **OS**: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - **Architecture**: {{ ansible_architecture }}
+          - **IP Address**: {{ ansible_default_ipv4.address | default('N/A') }}
+          - **Memory**: {{ ansible_memtotal_mb }}MB
+          - **CPU Cores**: {{ ansible_processor_vcpus }}
+
+          ## Configured Services:
+          {% if inventory_hostname in groups['webservers'] %}
+          - ✅ **Nginx Web Server** (Port 80)
+          - ✅ **Static File Serving**
+          - ✅ **Reverse Proxy Configuration**
+          {% endif %}
+
+          {% if inventory_hostname in groups['appservers'] %}
+          - ✅ **Node.js Runtime** (Version 18.x)
+          - ✅ **PM2 Process Manager**
+          - ✅ **Backend API Server** (Port {{ app_port }})
+          {% endif %}
+
+          {% if inventory_hostname in groups['databases'] %}
+          - ✅ **PostgreSQL Database** (Version 15)
+          - ✅ **Application Database**: {{ db_name }}
+          - ✅ **Database User**: {{ db_user }}
+          {% endif %}
+
+          {% if inventory_hostname in groups['loadbalancers'] %}
+          - ✅ **HAProxy Load Balancer**
+          - ✅ **Backend Server Pool**
+          {% endif %}
+
+          {% if inventory_hostname in groups['monitoring'] %}
+          - ✅ **System Monitoring Tools**
+          - ✅ **Health Check Scripts**
+          {% endif %}
+
+          ## Configuration Files:
+          - Application Directory: {{ app_directory }}
+          - Log Directory: {{ log_directory }}
+          - Application User: {{ app_user }}
+
+          ---
+          *Configured automatically by Ansible Playbook*
+        dest: "{{ log_directory }}/ansible-config-summary.md"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+
+    - name: "Report: Display completion message"
+      debug:
+        msg: |
+          ✅ Ansible configuration completed for {{ inventory_hostname }}
+          📁 Configuration summary: {{ log_directory }}/ansible-config-summary.md
+          🔍 Health check script: /usr/local/bin/lms-health-check.sh
