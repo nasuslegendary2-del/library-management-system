@@ -1,0 +1,51 @@
+{
+  "testSuite": "Library Management System - Comprehensive Selenium Tests",
+  "executionDate": "2025-12-18T01:51:27.450Z",
+  "environment": {
+    "frontendUrl": "http://172.188.254.183",
+    "backendUrl": "http://4.144.173.4:3000",
+    "browser": "Chrome",
+    "resolution": "1920x1080"
+  },
+  "summary": {
+    "totalTests": 4,
+    "passed": 4,
+    "failed": 0,
+    "partial": 0,
+    "successRate": "100%"
+  },
+  "testResults": [
+    {
+      "testCase": "Application Load",
+      "status": "PASS",
+      "details": "Title: Library Management System, Heading: Library Management System - CI/CD Ready",
+      "url": "http://172.188.254.183",
+      "timestamp": "2025-12-18T01:51:18.704Z"
+    },
+    {
+      "testCase": "UI Elements Verification",
+      "status": "PASS",
+      "details": "Main Heading: 1 found, Buttons: 6 found, Input Fields: 6 found, Forms: 3 found, Navigation: 1 found, Main Container: 1 found",
+      "elementsFound": 6,
+      "timestamp": "2025-12-18T01:51:19.970Z"
+    },
+    {
+      "testCase": "User Interaction Testing",
+      "status": "PASS",
+      "details": "button: Clicked successfully",
+      "interactionsSuccessful": 1,
+      "timestamp": "2025-12-18T01:51:23.868Z"
+    },
+    {
+      "testCase": "Backend Connectivity",
+      "status": "PASS",
+      "details": "Response: {\"status\":\"OK\",\"message\":\"Library Management System API\"}",
+      "backendUrl": "http://4.144.173.4:3000/health",
+      "timestamp": "2025-12-18T01:51:27.449Z"
+    }
+  ],
+  "screenshots": {
+    "directory": "./screenshots",
+    "count": 5
+  }
+}
